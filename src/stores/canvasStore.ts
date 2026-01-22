@@ -20,7 +20,8 @@ const initialState = {
   activeShapeType: 'rect' as ShapeType,
   strokeWidth: 2,
   fontSize: 16,
-  selectedElementId: null as string | null,
+  selectedElementId: null as string | null,  // Deprecated: use selectedElementIds
+  selectedElementIds: [] as string[],        // Multi-select support
   isDrawing: false,
   currentElement: null as CanvasElement | null,
   // History
@@ -84,7 +85,7 @@ export const useCanvasStore = create<CanvasStore>()(
       },
 
       setActiveTool: (tool: Tool) =>
-        set({ activeTool: tool, selectedElementId: null }),
+        set({ activeTool: tool, selectedElementId: null, selectedElementIds: [] }),
 
       setActiveColor: (color: string) =>
         set({ activeColor: color }),
@@ -104,7 +105,42 @@ export const useCanvasStore = create<CanvasStore>()(
         })),
 
       setSelectedElementId: (id: string | null) =>
-        set({ selectedElementId: id }),
+        set({
+          selectedElementId: id,
+          selectedElementIds: id ? [id] : [],
+        }),
+
+      // Multi-select actions
+      selectElements: (ids: string[]) =>
+        set({
+          selectedElementIds: ids,
+          selectedElementId: ids.length === 1 ? ids[0] : null,
+        }),
+
+      addToSelection: (id: string) =>
+        set((state) => {
+          if (state.selectedElementIds.includes(id)) return state;
+          const newIds = [...state.selectedElementIds, id];
+          return {
+            selectedElementIds: newIds,
+            selectedElementId: newIds.length === 1 ? newIds[0] : null,
+          };
+        }),
+
+      removeFromSelection: (id: string) =>
+        set((state) => {
+          const newIds = state.selectedElementIds.filter((i) => i !== id);
+          return {
+            selectedElementIds: newIds,
+            selectedElementId: newIds.length === 1 ? newIds[0] : null,
+          };
+        }),
+
+      clearSelection: () =>
+        set({
+          selectedElementIds: [],
+          selectedElementId: null,
+        }),
 
       setIsDrawing: (isDrawing: boolean) =>
         set({ isDrawing }),
@@ -114,7 +150,7 @@ export const useCanvasStore = create<CanvasStore>()(
 
       clearCanvas: () => {
         get().pushHistory();
-        set({ elements: [], selectedElementId: null });
+        set({ elements: [], selectedElementId: null, selectedElementIds: [] });
       },
 
       // History actions
@@ -126,6 +162,7 @@ export const useCanvasStore = create<CanvasStore>()(
             elements: deepClone(previousState.elements),
             historyIndex: historyIndex - 1,
             selectedElementId: null,
+            selectedElementIds: [],
           });
         } else if (historyIndex === 0) {
           // Undo to initial empty state
@@ -133,6 +170,7 @@ export const useCanvasStore = create<CanvasStore>()(
             elements: [],
             historyIndex: -1,
             selectedElementId: null,
+            selectedElementIds: [],
           });
         }
       },
@@ -145,6 +183,7 @@ export const useCanvasStore = create<CanvasStore>()(
             elements: deepClone(nextState.elements),
             historyIndex: historyIndex + 1,
             selectedElementId: null,
+            selectedElementIds: [],
           });
         }
       },
@@ -161,13 +200,13 @@ export const useCanvasStore = create<CanvasStore>()(
 
       // Clipboard actions
       copy: () => {
-        const { selectedElementId, elements } = get();
-        if (!selectedElementId) return;
-        const element = elements.find((el) => el.id === selectedElementId);
-        if (element) {
+        const { selectedElementIds, elements } = get();
+        if (selectedElementIds.length === 0) return;
+        const selectedElements = elements.filter((el) => selectedElementIds.includes(el.id));
+        if (selectedElements.length > 0) {
           set({
             clipboard: {
-              elements: [deepClone(element)],
+              elements: deepClone(selectedElements),
               copiedAt: Date.now(),
             },
           });
@@ -185,28 +224,32 @@ export const useCanvasStore = create<CanvasStore>()(
           y: el.y + 20,
           locked: false, // Pasted elements are unlocked
         }));
+        const pastedIds = pastedElements.map((el) => el.id);
         set((state) => ({
           elements: [...state.elements, ...pastedElements] as CanvasElement[],
-          selectedElementId: pastedElements[0]?.id ?? null,
+          selectedElementIds: pastedIds,
+          selectedElementId: pastedIds.length === 1 ? pastedIds[0] : null,
         }));
       },
 
       duplicate: () => {
-        const { selectedElementId, elements } = get();
-        if (!selectedElementId) return;
-        const element = elements.find((el) => el.id === selectedElementId);
-        if (!element) return;
+        const { selectedElementIds, elements } = get();
+        if (selectedElementIds.length === 0) return;
+        const selectedElements = elements.filter((el) => selectedElementIds.includes(el.id));
+        if (selectedElements.length === 0) return;
         get().pushHistory();
-        const duplicated = {
+        const duplicated = selectedElements.map((element) => ({
           ...deepClone(element),
           id: generateId(),
           x: element.x + 20,
           y: element.y + 20,
           locked: false,
-        };
+        }));
+        const duplicatedIds = duplicated.map((el) => el.id);
         set((state) => ({
-          elements: [...state.elements, duplicated] as CanvasElement[],
-          selectedElementId: duplicated.id,
+          elements: [...state.elements, ...duplicated] as CanvasElement[],
+          selectedElementIds: duplicatedIds,
+          selectedElementId: duplicatedIds.length === 1 ? duplicatedIds[0] : null,
         }));
       },
 
@@ -325,6 +368,7 @@ export const useCanvasStore = create<CanvasStore>()(
           elements: data.elements,
           viewport: data.viewport ?? { x: 0, y: 0, zoom: 1 },
           selectedElementId: null,
+          selectedElementIds: [],
           // Reset history when loading
           history: [],
           historyIndex: -1,

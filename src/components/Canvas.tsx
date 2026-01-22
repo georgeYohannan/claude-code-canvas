@@ -22,6 +22,10 @@ export default function Canvas() {
     y: 0,
     value: '',
   });
+  // Marquee selection state
+  const [isMarqueeSelecting, setIsMarqueeSelecting] = useState(false);
+  const [marqueeStart, setMarqueeStart] = useState<Point | null>(null);
+  const [marqueeEnd, setMarqueeEnd] = useState<Point | null>(null);
 
   const {
     elements,
@@ -31,7 +35,7 @@ export default function Canvas() {
     activeShapeType,
     strokeWidth,
     fontSize,
-    selectedElementId,
+    selectedElementIds,
     isDrawing,
     currentElement,
     gridSettings,
@@ -40,7 +44,10 @@ export default function Canvas() {
     deleteElement,
     setActiveTool,
     setViewport,
-    setSelectedElementId,
+    selectElements,
+    addToSelection,
+    removeFromSelection,
+    clearSelection,
     setIsDrawing,
     setCurrentElement,
     // New actions
@@ -349,7 +356,7 @@ export default function Canvas() {
       }
 
       // Selection indicator
-      if (selectedElementId === element.id) {
+      if (selectedElementIds.includes(element.id)) {
         ctx.strokeStyle = '#0066ff';
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
@@ -374,7 +381,7 @@ export default function Canvas() {
 
       ctx.restore();
     },
-    [selectedElementId]
+    [selectedElementIds]
   );
 
   const getElementBounds = (element: CanvasElement): { x: number; y: number; width: number; height: number } => {
@@ -481,8 +488,23 @@ export default function Canvas() {
       drawElement(ctx, currentElement);
     }
 
+    // Draw marquee selection rectangle
+    if (isMarqueeSelecting && marqueeStart && marqueeEnd) {
+      ctx.strokeStyle = '#0066ff';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 5]);
+      ctx.fillStyle = 'rgba(0, 102, 255, 0.1)';
+      const x = Math.min(marqueeStart.x, marqueeEnd.x);
+      const y = Math.min(marqueeStart.y, marqueeEnd.y);
+      const width = Math.abs(marqueeEnd.x - marqueeStart.x);
+      const height = Math.abs(marqueeEnd.y - marqueeStart.y);
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, y, width, height);
+      ctx.setLineDash([]);
+    }
+
     ctx.restore();
-  }, [viewport, elements, currentElement, drawElement]);
+  }, [viewport, elements, currentElement, drawElement, isMarqueeSelecting, marqueeStart, marqueeEnd]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -516,9 +538,12 @@ export default function Canvas() {
         e.preventDefault();
         setSpacePressed(true);
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedElementId) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedElementIds.length > 0) {
         e.preventDefault();
-        deleteElement(selectedElementId);
+        selectedElementIds.forEach((id) => {
+          const el = elements.find((e) => e.id === id);
+          if (el && !el.locked) deleteElement(id);
+        });
       }
 
       // Ctrl/Cmd shortcuts
@@ -563,8 +588,8 @@ export default function Canvas() {
             break;
           case 'l':
             e.preventDefault();
-            if (selectedElementId) {
-              toggleLock(selectedElementId);
+            if (selectedElementIds.length > 0) {
+              selectedElementIds.forEach((id) => toggleLock(id));
             }
             break;
         }
@@ -611,7 +636,7 @@ export default function Canvas() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedElementId, deleteElement, setActiveTool, setViewport, undo, redo, copy, paste, duplicate, zoomIn, zoomOut, toggleLock]);
+  }, [selectedElementIds, elements, deleteElement, setActiveTool, setViewport, undo, redo, copy, paste, duplicate, zoomIn, zoomOut, toggleLock]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -629,11 +654,35 @@ export default function Canvas() {
 
       if (activeTool === 'select') {
         const hitElement = hitTest(rawPoint);
-        // Don't allow selecting locked elements for dragging
-        setSelectedElementId(hitElement?.id ?? null);
-        if (hitElement && !hitElement.locked) {
-          setIsDrawing(true);
-          setPanStart(rawPoint);
+
+        if (hitElement) {
+          // Clicked on an element
+          if (e.shiftKey) {
+            // Shift+click: toggle selection
+            if (selectedElementIds.includes(hitElement.id)) {
+              removeFromSelection(hitElement.id);
+            } else {
+              addToSelection(hitElement.id);
+            }
+          } else {
+            // Regular click: select only this element (unless already selected for multi-drag)
+            if (!selectedElementIds.includes(hitElement.id)) {
+              selectElements([hitElement.id]);
+            }
+          }
+          // Start dragging if element is not locked
+          if (!hitElement.locked) {
+            setIsDrawing(true);
+            setPanStart(rawPoint);
+          }
+        } else {
+          // Clicked on empty space - start marquee selection
+          if (!e.shiftKey) {
+            clearSelection();
+          }
+          setIsMarqueeSelecting(true);
+          setMarqueeStart(rawPoint);
+          setMarqueeEnd(rawPoint);
         }
         return;
       }
@@ -698,7 +747,11 @@ export default function Canvas() {
       screenToCanvas,
       spacePressed,
       hitTest,
-      setSelectedElementId,
+      selectedElementIds,
+      selectElements,
+      addToSelection,
+      removeFromSelection,
+      clearSelection,
       setIsDrawing,
       setCurrentElement,
       snapToGrid,
@@ -715,27 +768,36 @@ export default function Canvas() {
         return;
       }
 
-      if (!isDrawing) return;
-
       const rawPoint = screenToCanvas(e.clientX, e.clientY);
       const point = {
         x: snapToGrid(rawPoint.x),
         y: snapToGrid(rawPoint.y),
       };
 
-      if (activeTool === 'select' && selectedElementId) {
+      // Handle marquee selection
+      if (isMarqueeSelecting) {
+        setMarqueeEnd(rawPoint);
+        return;
+      }
+
+      if (!isDrawing) return;
+
+      // Move all selected elements
+      if (activeTool === 'select' && selectedElementIds.length > 0) {
         const dx = rawPoint.x - panStart.x;
         const dy = rawPoint.y - panStart.y;
-        const element = elements.find((el) => el.id === selectedElementId);
-        if (element && !element.locked) {
-          if (element.type === 'drawing') {
-            const drawingEl = element as DrawingElement;
-            const newPoints = drawingEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
-            updateElement(selectedElementId, { points: newPoints } as Partial<DrawingElement>);
-          } else {
-            updateElement(selectedElementId, { x: element.x + dx, y: element.y + dy });
+        selectedElementIds.forEach((id) => {
+          const element = elements.find((el) => el.id === id);
+          if (element && !element.locked) {
+            if (element.type === 'drawing') {
+              const drawingEl = element as DrawingElement;
+              const newPoints = drawingEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+              updateElement(id, { points: newPoints } as Partial<DrawingElement>);
+            } else {
+              updateElement(id, { x: element.x + dx, y: element.y + dy });
+            }
           }
-        }
+        });
         setPanStart(rawPoint);
         return;
       }
@@ -770,10 +832,11 @@ export default function Canvas() {
     [
       isPanning,
       isDrawing,
+      isMarqueeSelecting,
       activeTool,
       panStart,
       currentElement,
-      selectedElementId,
+      selectedElementIds,
       elements,
       screenToCanvas,
       setViewport,
@@ -783,9 +846,46 @@ export default function Canvas() {
     ]
   );
 
+  // Helper to check if element intersects with marquee rectangle
+  const elementIntersectsRect = useCallback(
+    (element: CanvasElement, rect: { x: number; y: number; width: number; height: number }) => {
+      const bounds = getElementBounds(element);
+      return !(
+        bounds.x + bounds.width < rect.x ||
+        bounds.x > rect.x + rect.width ||
+        bounds.y + bounds.height < rect.y ||
+        bounds.y > rect.y + rect.height
+      );
+    },
+    []
+  );
+
   const handleMouseUp = useCallback(() => {
     if (isPanning) {
       setIsPanning(false);
+      return;
+    }
+
+    // Finalize marquee selection
+    if (isMarqueeSelecting && marqueeStart && marqueeEnd) {
+      const rect = {
+        x: Math.min(marqueeStart.x, marqueeEnd.x),
+        y: Math.min(marqueeStart.y, marqueeEnd.y),
+        width: Math.abs(marqueeEnd.x - marqueeStart.x),
+        height: Math.abs(marqueeEnd.y - marqueeStart.y),
+      };
+
+      // Only select if marquee has some size
+      if (rect.width > 5 || rect.height > 5) {
+        const selectedIds = elements
+          .filter((el) => elementIntersectsRect(el, rect))
+          .map((el) => el.id);
+        selectElements(selectedIds);
+      }
+
+      setIsMarqueeSelecting(false);
+      setMarqueeStart(null);
+      setMarqueeEnd(null);
       return;
     }
 
@@ -794,7 +894,7 @@ export default function Canvas() {
       setCurrentElement(null);
     }
     setIsDrawing(false);
-  }, [isPanning, isDrawing, currentElement, addElement, setCurrentElement, setIsDrawing]);
+  }, [isPanning, isDrawing, isMarqueeSelecting, marqueeStart, marqueeEnd, currentElement, elements, addElement, setCurrentElement, setIsDrawing, selectElements, elementIntersectsRect]);
 
   const handleWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {

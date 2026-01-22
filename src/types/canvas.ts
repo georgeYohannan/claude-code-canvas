@@ -92,7 +92,8 @@ export interface CanvasState {
   activeShapeType: ShapeType;
   strokeWidth: number;
   fontSize: number;
-  selectedElementId: string | null;
+  selectedElementId: string | null;  // Deprecated: use selectedElementIds
+  selectedElementIds: string[];      // Multi-select support
   isDrawing: boolean;
   currentElement: CanvasElement | null;
   // History for undo/redo
@@ -114,7 +115,12 @@ export interface CanvasActions {
   setStrokeWidth: (width: number) => void;
   setFontSize: (size: number) => void;
   setViewport: (viewport: Partial<Viewport>) => void;
-  setSelectedElementId: (id: string | null) => void;
+  setSelectedElementId: (id: string | null) => void;  // Deprecated: use selectElements
+  // Multi-select actions
+  selectElements: (ids: string[]) => void;
+  addToSelection: (id: string) => void;
+  removeFromSelection: (id: string) => void;
+  clearSelection: () => void;
   setIsDrawing: (isDrawing: boolean) => void;
   setCurrentElement: (element: CanvasElement | null) => void;
   clearCanvas: () => void;
