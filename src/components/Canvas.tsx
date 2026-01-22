@@ -34,6 +34,7 @@ export default function Canvas() {
     selectedElementId,
     isDrawing,
     currentElement,
+    gridSettings,
     addElement,
     updateElement,
     deleteElement,
@@ -42,6 +43,16 @@ export default function Canvas() {
     setSelectedElementId,
     setIsDrawing,
     setCurrentElement,
+    // New actions
+    undo,
+    redo,
+    copy,
+    paste,
+    duplicate,
+    zoomIn,
+    zoomOut,
+    snapToGrid,
+    toggleLock,
   } = useCanvasStore();
 
   const screenToCanvas = useCallback(
@@ -161,6 +172,164 @@ export default function Canvas() {
               ctx.stroke();
               break;
             }
+            case 'diamond': {
+              const cx = shapeEl.x + shapeEl.width / 2;
+              const cy = shapeEl.y + shapeEl.height / 2;
+              ctx.moveTo(cx, shapeEl.y);
+              ctx.lineTo(shapeEl.x + shapeEl.width, cy);
+              ctx.lineTo(cx, shapeEl.y + shapeEl.height);
+              ctx.lineTo(shapeEl.x, cy);
+              ctx.closePath();
+              ctx.stroke();
+              break;
+            }
+            case 'parallelogram': {
+              const skew = Math.abs(shapeEl.width) * 0.2;
+              ctx.moveTo(shapeEl.x + skew, shapeEl.y);
+              ctx.lineTo(shapeEl.x + shapeEl.width, shapeEl.y);
+              ctx.lineTo(shapeEl.x + shapeEl.width - skew, shapeEl.y + shapeEl.height);
+              ctx.lineTo(shapeEl.x, shapeEl.y + shapeEl.height);
+              ctx.closePath();
+              ctx.stroke();
+              break;
+            }
+            case 'hexagon': {
+              const cx = shapeEl.x + shapeEl.width / 2;
+              const cy = shapeEl.y + shapeEl.height / 2;
+              const halfW = Math.abs(shapeEl.width) / 2;
+              ctx.moveTo(cx - halfW * 0.5, shapeEl.y);
+              ctx.lineTo(cx + halfW * 0.5, shapeEl.y);
+              ctx.lineTo(shapeEl.x + shapeEl.width, cy);
+              ctx.lineTo(cx + halfW * 0.5, shapeEl.y + shapeEl.height);
+              ctx.lineTo(cx - halfW * 0.5, shapeEl.y + shapeEl.height);
+              ctx.lineTo(shapeEl.x, cy);
+              ctx.closePath();
+              ctx.stroke();
+              break;
+            }
+            case 'pentagon': {
+              const cx = shapeEl.x + shapeEl.width / 2;
+              const cy = shapeEl.y + shapeEl.height / 2;
+              const r = Math.min(Math.abs(shapeEl.width), Math.abs(shapeEl.height)) / 2;
+              for (let i = 0; i < 5; i++) {
+                const angle = (i * 2 * Math.PI / 5) - Math.PI / 2;
+                const px = cx + r * Math.cos(angle);
+                const py = cy + r * Math.sin(angle);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+              }
+              ctx.closePath();
+              ctx.stroke();
+              break;
+            }
+            case 'roundedRect': {
+              const radius = Math.min(15, Math.abs(shapeEl.width) / 4, Math.abs(shapeEl.height) / 4);
+              ctx.roundRect(shapeEl.x, shapeEl.y, shapeEl.width, shapeEl.height, radius);
+              ctx.stroke();
+              break;
+            }
+            case 'cylinder': {
+              const ellipseH = Math.abs(shapeEl.height) * 0.15;
+              const w = Math.abs(shapeEl.width);
+              const h = Math.abs(shapeEl.height);
+              // Top ellipse
+              ctx.ellipse(shapeEl.x + w / 2, shapeEl.y + ellipseH, w / 2, ellipseH, 0, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.beginPath();
+              // Side lines
+              ctx.moveTo(shapeEl.x, shapeEl.y + ellipseH);
+              ctx.lineTo(shapeEl.x, shapeEl.y + h - ellipseH);
+              ctx.moveTo(shapeEl.x + w, shapeEl.y + ellipseH);
+              ctx.lineTo(shapeEl.x + w, shapeEl.y + h - ellipseH);
+              ctx.stroke();
+              ctx.beginPath();
+              // Bottom ellipse (half)
+              ctx.ellipse(shapeEl.x + w / 2, shapeEl.y + h - ellipseH, w / 2, ellipseH, 0, 0, Math.PI);
+              ctx.stroke();
+              break;
+            }
+            case 'document': {
+              const w = shapeEl.width;
+              const h = shapeEl.height;
+              const waveH = Math.abs(h) * 0.1;
+              ctx.moveTo(shapeEl.x, shapeEl.y);
+              ctx.lineTo(shapeEl.x + w, shapeEl.y);
+              ctx.lineTo(shapeEl.x + w, shapeEl.y + h - waveH);
+              ctx.quadraticCurveTo(
+                shapeEl.x + w * 0.75, shapeEl.y + h,
+                shapeEl.x + w * 0.5, shapeEl.y + h - waveH
+              );
+              ctx.quadraticCurveTo(
+                shapeEl.x + w * 0.25, shapeEl.y + h - waveH * 2,
+                shapeEl.x, shapeEl.y + h - waveH
+              );
+              ctx.closePath();
+              ctx.stroke();
+              break;
+            }
+            case 'cloud': {
+              const cx = shapeEl.x + shapeEl.width / 2;
+              const cy = shapeEl.y + shapeEl.height / 2;
+              const w = Math.abs(shapeEl.width) / 2;
+              const h = Math.abs(shapeEl.height) / 2;
+              // Draw overlapping circles to form cloud
+              ctx.arc(cx - w * 0.4, cy + h * 0.2, h * 0.5, 0, Math.PI * 2);
+              ctx.arc(cx, cy - h * 0.2, h * 0.6, 0, Math.PI * 2);
+              ctx.arc(cx + w * 0.4, cy + h * 0.2, h * 0.5, 0, Math.PI * 2);
+              ctx.arc(cx - w * 0.15, cy + h * 0.4, h * 0.35, 0, Math.PI * 2);
+              ctx.arc(cx + w * 0.2, cy + h * 0.35, h * 0.4, 0, Math.PI * 2);
+              ctx.stroke();
+              break;
+            }
+            case 'callout': {
+              const w = shapeEl.width;
+              const h = shapeEl.height;
+              const tailH = Math.abs(h) * 0.25;
+              const bodyH = Math.abs(h) - tailH;
+              const radius = Math.min(10, Math.abs(w) / 6, bodyH / 4);
+              // Rounded rectangle body
+              ctx.roundRect(shapeEl.x, shapeEl.y, w, bodyH, radius);
+              ctx.stroke();
+              ctx.beginPath();
+              // Tail/pointer
+              ctx.moveTo(shapeEl.x + Math.abs(w) * 0.2, shapeEl.y + bodyH);
+              ctx.lineTo(shapeEl.x + Math.abs(w) * 0.1, shapeEl.y + Math.abs(h));
+              ctx.lineTo(shapeEl.x + Math.abs(w) * 0.35, shapeEl.y + bodyH);
+              ctx.stroke();
+              break;
+            }
+            case 'plus': {
+              const w = Math.abs(shapeEl.width);
+              const h = Math.abs(shapeEl.height);
+              const armW = w / 3;
+              const armH = h / 3;
+              ctx.moveTo(shapeEl.x + armW, shapeEl.y);
+              ctx.lineTo(shapeEl.x + armW * 2, shapeEl.y);
+              ctx.lineTo(shapeEl.x + armW * 2, shapeEl.y + armH);
+              ctx.lineTo(shapeEl.x + w, shapeEl.y + armH);
+              ctx.lineTo(shapeEl.x + w, shapeEl.y + armH * 2);
+              ctx.lineTo(shapeEl.x + armW * 2, shapeEl.y + armH * 2);
+              ctx.lineTo(shapeEl.x + armW * 2, shapeEl.y + h);
+              ctx.lineTo(shapeEl.x + armW, shapeEl.y + h);
+              ctx.lineTo(shapeEl.x + armW, shapeEl.y + armH * 2);
+              ctx.lineTo(shapeEl.x, shapeEl.y + armH * 2);
+              ctx.lineTo(shapeEl.x, shapeEl.y + armH);
+              ctx.lineTo(shapeEl.x + armW, shapeEl.y + armH);
+              ctx.closePath();
+              ctx.stroke();
+              break;
+            }
+            case 'cross': {
+              const w = Math.abs(shapeEl.width);
+              const h = Math.abs(shapeEl.height);
+              const margin = Math.min(w, h) * 0.15;
+              ctx.moveTo(shapeEl.x + margin, shapeEl.y + margin);
+              ctx.lineTo(shapeEl.x + w - margin, shapeEl.y + h - margin);
+              ctx.moveTo(shapeEl.x + w - margin, shapeEl.y + margin);
+              ctx.lineTo(shapeEl.x + margin, shapeEl.y + h - margin);
+              ctx.stroke();
+              break;
+            }
           }
           break;
         }
@@ -179,6 +348,7 @@ export default function Canvas() {
         }
       }
 
+      // Selection indicator
       if (selectedElementId === element.id) {
         ctx.strokeStyle = '#0066ff';
         ctx.lineWidth = 2;
@@ -186,6 +356,20 @@ export default function Canvas() {
         const bounds = getElementBounds(element);
         ctx.strokeRect(bounds.x - 5, bounds.y - 5, bounds.width + 10, bounds.height + 10);
         ctx.setLineDash([]);
+      }
+
+      // Locked element indicator
+      if (element.locked) {
+        ctx.strokeStyle = '#ff6600';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        const bounds = getElementBounds(element);
+        ctx.strokeRect(bounds.x - 5, bounds.y - 5, bounds.width + 10, bounds.height + 10);
+        ctx.setLineDash([]);
+        // Draw lock icon
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#ff6600';
+        ctx.fillText('🔒', bounds.x + bounds.width + 5, bounds.y + 14);
       }
 
       ctx.restore();
@@ -337,38 +521,80 @@ export default function Canvas() {
         deleteElement(selectedElementId);
       }
 
-      // Tool shortcuts
-      if (!e.ctrlKey && !e.metaKey) {
+      // Ctrl/Cmd shortcuts
+      if (e.ctrlKey || e.metaKey) {
         switch (e.key.toLowerCase()) {
+          case 'z':
+            e.preventDefault();
+            if (e.shiftKey) {
+              redo();
+            } else {
+              undo();
+            }
+            break;
+          case 'y':
+            e.preventDefault();
+            redo();
+            break;
+          case 'c':
+            e.preventDefault();
+            copy();
+            break;
           case 'v':
-            setActiveTool('select');
+            e.preventDefault();
+            paste();
             break;
-          case 'b':
-            setActiveTool('draw');
+          case 'd':
+            e.preventDefault();
+            duplicate();
             break;
-          case 'e':
-            setActiveTool('eraser');
+          case '=':
+          case '+':
+            e.preventDefault();
+            zoomIn();
             break;
-          case 's':
-            setActiveTool('shape');
+          case '-':
+            e.preventDefault();
+            zoomOut();
             break;
-          case 't':
-            setActiveTool('text');
+          case '0':
+            e.preventDefault();
+            setViewport({ x: 0, y: 0, zoom: 1 });
             break;
-          case 'i':
-            setActiveTool('image');
-            document.getElementById('image-upload')?.click();
-            break;
-          case 'h':
-            setActiveTool('pan');
+          case 'l':
+            e.preventDefault();
+            if (selectedElementId) {
+              toggleLock(selectedElementId);
+            }
             break;
         }
+        return;
       }
 
-      // Reset zoom
-      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
-        e.preventDefault();
-        setViewport({ x: 0, y: 0, zoom: 1 });
+      // Tool shortcuts (no modifier key)
+      switch (e.key.toLowerCase()) {
+        case 'v':
+          setActiveTool('select');
+          break;
+        case 'b':
+          setActiveTool('draw');
+          break;
+        case 'e':
+          setActiveTool('eraser');
+          break;
+        case 's':
+          setActiveTool('shape');
+          break;
+        case 't':
+          setActiveTool('text');
+          break;
+        case 'i':
+          setActiveTool('image');
+          document.getElementById('image-upload')?.click();
+          break;
+        case 'h':
+          setActiveTool('pan');
+          break;
       }
     };
 
@@ -385,11 +611,15 @@ export default function Canvas() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedElementId, deleteElement, setActiveTool, setViewport]);
+  }, [selectedElementId, deleteElement, setActiveTool, setViewport, undo, redo, copy, paste, duplicate, zoomIn, zoomOut, toggleLock]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const point = screenToCanvas(e.clientX, e.clientY);
+      const rawPoint = screenToCanvas(e.clientX, e.clientY);
+      const point = {
+        x: snapToGrid(rawPoint.x),
+        y: snapToGrid(rawPoint.y),
+      };
 
       if (spacePressed || e.button === 1 || activeTool === 'pan') {
         setIsPanning(true);
@@ -398,11 +628,12 @@ export default function Canvas() {
       }
 
       if (activeTool === 'select') {
-        const hitElement = hitTest(point);
+        const hitElement = hitTest(rawPoint);
+        // Don't allow selecting locked elements for dragging
         setSelectedElementId(hitElement?.id ?? null);
-        if (hitElement) {
+        if (hitElement && !hitElement.locked) {
           setIsDrawing(true);
-          setPanStart(point);
+          setPanStart(rawPoint);
         }
         return;
       }
@@ -429,11 +660,11 @@ export default function Canvas() {
         const newElement: DrawingElement = {
           id: generateId(),
           type: 'drawing',
-          x: point.x,
-          y: point.y,
+          x: rawPoint.x,
+          y: rawPoint.y,
           color: activeTool === 'eraser' ? '#000000' : activeColor,
           strokeWidth: activeTool === 'eraser' ? strokeWidth * 2 : strokeWidth,
-          points: [point],
+          points: [rawPoint],
           isEraser: activeTool === 'eraser',
         };
         setCurrentElement(newElement);
@@ -470,6 +701,7 @@ export default function Canvas() {
       setSelectedElementId,
       setIsDrawing,
       setCurrentElement,
+      snapToGrid,
     ]
   );
 
@@ -485,13 +717,17 @@ export default function Canvas() {
 
       if (!isDrawing) return;
 
-      const point = screenToCanvas(e.clientX, e.clientY);
+      const rawPoint = screenToCanvas(e.clientX, e.clientY);
+      const point = {
+        x: snapToGrid(rawPoint.x),
+        y: snapToGrid(rawPoint.y),
+      };
 
       if (activeTool === 'select' && selectedElementId) {
-        const dx = point.x - panStart.x;
-        const dy = point.y - panStart.y;
+        const dx = rawPoint.x - panStart.x;
+        const dy = rawPoint.y - panStart.y;
         const element = elements.find((el) => el.id === selectedElementId);
-        if (element) {
+        if (element && !element.locked) {
           if (element.type === 'drawing') {
             const drawingEl = element as DrawingElement;
             const newPoints = drawingEl.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
@@ -500,7 +736,7 @@ export default function Canvas() {
             updateElement(selectedElementId, { x: element.x + dx, y: element.y + dy });
           }
         }
-        setPanStart(point);
+        setPanStart(rawPoint);
         return;
       }
 
@@ -508,7 +744,7 @@ export default function Canvas() {
         const drawingEl = currentElement as DrawingElement;
         setCurrentElement({
           ...drawingEl,
-          points: [...drawingEl.points, point],
+          points: [...drawingEl.points, rawPoint],
         });
       }
 
@@ -543,6 +779,7 @@ export default function Canvas() {
       setViewport,
       setCurrentElement,
       updateElement,
+      snapToGrid,
     ]
   );
 
