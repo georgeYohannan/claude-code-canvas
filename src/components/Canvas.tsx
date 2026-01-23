@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useCanvasStore } from '@/stores/canvasStore';
-import type { Point, CanvasElement, DrawingElement, ShapeElement, TextElement, ImageElement } from '@/types/canvas';
+import type { Point, CanvasElement, DrawingElement, ShapeElement, TextElement, ImageElement, ConnectorElement } from '@/types/canvas';
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
@@ -26,6 +26,15 @@ export default function Canvas() {
   const [isMarqueeSelecting, setIsMarqueeSelecting] = useState(false);
   const [marqueeStart, setMarqueeStart] = useState<Point | null>(null);
   const [marqueeEnd, setMarqueeEnd] = useState<Point | null>(null);
+
+  // Resize state
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+  const [resizeStartBounds, setResizeStartBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [resizeStartPoint, setResizeStartPoint] = useState<Point | null>(null);
+
+  // Connector state
+  const [connectorStart, setConnectorStart] = useState<{ point: Point; elementId: string | null } | null>(null);
 
   const {
     elements,
@@ -353,6 +362,77 @@ export default function Canvas() {
           ctx.drawImage(img, imageEl.x, imageEl.y, imageEl.width, imageEl.height);
           break;
         }
+        case 'connector': {
+          const connEl = element as ConnectorElement;
+          let startX = connEl.startPoint.x;
+          let startY = connEl.startPoint.y;
+          let endX = connEl.endPoint.x;
+          let endY = connEl.endPoint.y;
+
+          // If connected to elements, get their center points
+          if (connEl.startElementId) {
+            const startElement = elements.find((el) => el.id === connEl.startElementId);
+            if (startElement) {
+              const bounds = getElementBounds(startElement);
+              startX = bounds.x + bounds.width / 2;
+              startY = bounds.y + bounds.height / 2;
+            }
+          }
+          if (connEl.endElementId) {
+            const endElement = elements.find((el) => el.id === connEl.endElementId);
+            if (endElement) {
+              const bounds = getElementBounds(endElement);
+              endX = bounds.x + bounds.width / 2;
+              endY = bounds.y + bounds.height / 2;
+            }
+          }
+
+          ctx.beginPath();
+          if (connEl.connectorStyle === 'straight') {
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+          } else if (connEl.connectorStyle === 'elbow') {
+            // Draw elbow connector (L-shaped)
+            const midX = (startX + endX) / 2;
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(midX, startY);
+            ctx.lineTo(midX, endY);
+            ctx.lineTo(endX, endY);
+          } else if (connEl.connectorStyle === 'curved') {
+            // Draw curved connector using bezier
+            const controlX1 = startX + (endX - startX) / 3;
+            const controlY1 = startY;
+            const controlX2 = endX - (endX - startX) / 3;
+            const controlY2 = endY;
+            ctx.moveTo(startX, startY);
+            ctx.bezierCurveTo(controlX1, controlY1, controlX2, controlY2, endX, endY);
+          }
+          ctx.stroke();
+
+          // Draw arrow at the end if hasEndArrow
+          if (connEl.hasEndArrow !== false) {
+            const angle = Math.atan2(endY - startY, endX - startX);
+            const headLength = 12;
+            ctx.beginPath();
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(
+              endX - headLength * Math.cos(angle - Math.PI / 6),
+              endY - headLength * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(
+              endX - headLength * Math.cos(angle + Math.PI / 6),
+              endY - headLength * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.stroke();
+          }
+
+          // Draw circle at start point for visual feedback
+          ctx.beginPath();
+          ctx.arc(startX, startY, 4, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
       }
 
       // Selection indicator
@@ -363,6 +443,29 @@ export default function Canvas() {
         const bounds = getElementBounds(element);
         ctx.strokeRect(bounds.x - 5, bounds.y - 5, bounds.width + 10, bounds.height + 10);
         ctx.setLineDash([]);
+
+        // Draw resize handles for shapes and images (only for single selection)
+        if (selectedElementIds.length === 1 && (element.type === 'shape' || element.type === 'image') && !element.locked) {
+          const handleSize = 8;
+          const handles = [
+            { x: bounds.x - 5, y: bounds.y - 5 }, // nw
+            { x: bounds.x + bounds.width / 2, y: bounds.y - 5 }, // n
+            { x: bounds.x + bounds.width + 5, y: bounds.y - 5 }, // ne
+            { x: bounds.x + bounds.width + 5, y: bounds.y + bounds.height / 2 }, // e
+            { x: bounds.x + bounds.width + 5, y: bounds.y + bounds.height + 5 }, // se
+            { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height + 5 }, // s
+            { x: bounds.x - 5, y: bounds.y + bounds.height + 5 }, // sw
+            { x: bounds.x - 5, y: bounds.y + bounds.height / 2 }, // w
+          ];
+
+          handles.forEach((handle) => {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#0066ff';
+            ctx.lineWidth = 2;
+            ctx.fillRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize);
+            ctx.strokeRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize);
+          });
+        }
       }
 
       // Locked element indicator
@@ -426,6 +529,14 @@ export default function Canvas() {
         const imageEl = element as ImageElement;
         return { x: imageEl.x, y: imageEl.y, width: imageEl.width, height: imageEl.height };
       }
+      case 'connector': {
+        const connEl = element as ConnectorElement;
+        const minX = Math.min(connEl.startPoint.x, connEl.endPoint.x);
+        const minY = Math.min(connEl.startPoint.y, connEl.endPoint.y);
+        const maxX = Math.max(connEl.startPoint.x, connEl.endPoint.x);
+        const maxY = Math.max(connEl.startPoint.y, connEl.endPoint.y);
+        return { x: minX, y: minY, width: maxX - minX || 10, height: maxY - minY || 10 };
+      }
     }
   };
 
@@ -446,6 +557,56 @@ export default function Canvas() {
       return null;
     },
     [elements]
+  );
+
+  // Resize handle size
+  const HANDLE_SIZE = 8;
+
+  // Get resize handles for a selected element
+  const getResizeHandles = useCallback(
+    (bounds: { x: number; y: number; width: number; height: number }) => {
+      const { x, y, width, height } = bounds;
+      return {
+        'nw': { x: x - HANDLE_SIZE / 2, y: y - HANDLE_SIZE / 2 },
+        'n':  { x: x + width / 2 - HANDLE_SIZE / 2, y: y - HANDLE_SIZE / 2 },
+        'ne': { x: x + width - HANDLE_SIZE / 2, y: y - HANDLE_SIZE / 2 },
+        'e':  { x: x + width - HANDLE_SIZE / 2, y: y + height / 2 - HANDLE_SIZE / 2 },
+        'se': { x: x + width - HANDLE_SIZE / 2, y: y + height - HANDLE_SIZE / 2 },
+        's':  { x: x + width / 2 - HANDLE_SIZE / 2, y: y + height - HANDLE_SIZE / 2 },
+        'sw': { x: x - HANDLE_SIZE / 2, y: y + height - HANDLE_SIZE / 2 },
+        'w':  { x: x - HANDLE_SIZE / 2, y: y + height / 2 - HANDLE_SIZE / 2 },
+      };
+    },
+    []
+  );
+
+  // Hit test for resize handles
+  const hitTestResizeHandle = useCallback(
+    (point: Point): { elementId: string; handle: string } | null => {
+      if (selectedElementIds.length !== 1) return null;
+
+      const element = elements.find((el) => el.id === selectedElementIds[0]);
+      if (!element || element.locked) return null;
+
+      // Only allow resizing shapes and images
+      if (element.type !== 'shape' && element.type !== 'image') return null;
+
+      const bounds = getElementBounds(element);
+      const handles = getResizeHandles(bounds);
+
+      for (const [handleName, handlePos] of Object.entries(handles)) {
+        if (
+          point.x >= handlePos.x - 2 &&
+          point.x <= handlePos.x + HANDLE_SIZE + 2 &&
+          point.y >= handlePos.y - 2 &&
+          point.y <= handlePos.y + HANDLE_SIZE + 2
+        ) {
+          return { elementId: element.id, handle: handleName };
+        }
+      }
+      return null;
+    },
+    [selectedElementIds, elements, getResizeHandles]
   );
 
   const render = useCallback(() => {
@@ -610,6 +771,9 @@ export default function Canvas() {
         case 's':
           setActiveTool('shape');
           break;
+        case 'c':
+          setActiveTool('connector');
+          break;
         case 't':
           setActiveTool('text');
           break;
@@ -653,6 +817,19 @@ export default function Canvas() {
       }
 
       if (activeTool === 'select') {
+        // Check for resize handle hit first
+        const resizeHit = hitTestResizeHandle(rawPoint);
+        if (resizeHit) {
+          const element = elements.find((el) => el.id === resizeHit.elementId);
+          if (element) {
+            setIsResizing(true);
+            setResizeHandle(resizeHit.handle);
+            setResizeStartBounds(getElementBounds(element));
+            setResizeStartPoint(rawPoint);
+            return;
+          }
+        }
+
         const hitElement = hitTest(rawPoint);
 
         if (hitElement) {
@@ -737,6 +914,34 @@ export default function Canvas() {
         setCurrentElement(newElement);
         setIsDrawing(true);
       }
+
+      if (activeTool === 'connector') {
+        // Check if clicking on an element to start connection
+        const hitElement = hitTest(rawPoint);
+        const startElementId = hitElement ? hitElement.id : null;
+
+        setConnectorStart({
+          point: rawPoint,
+          elementId: startElementId,
+        });
+
+        const newConnector: ConnectorElement = {
+          id: generateId(),
+          type: 'connector',
+          x: rawPoint.x,
+          y: rawPoint.y,
+          color: activeColor,
+          strokeWidth,
+          startElementId,
+          endElementId: null,
+          startPoint: rawPoint,
+          endPoint: rawPoint,
+          connectorStyle: 'straight',
+          hasEndArrow: true,
+        };
+        setCurrentElement(newConnector);
+        setIsDrawing(true);
+      }
     },
     [
       activeTool,
@@ -747,7 +952,9 @@ export default function Canvas() {
       screenToCanvas,
       spacePressed,
       hitTest,
+      hitTestResizeHandle,
       selectedElementIds,
+      elements,
       selectElements,
       addToSelection,
       removeFromSelection,
@@ -777,6 +984,81 @@ export default function Canvas() {
       // Handle marquee selection
       if (isMarqueeSelecting) {
         setMarqueeEnd(rawPoint);
+        return;
+      }
+
+      // Handle resizing
+      if (isResizing && resizeHandle && resizeStartBounds && resizeStartPoint && selectedElementIds.length === 1) {
+        const element = elements.find((el) => el.id === selectedElementIds[0]);
+        if (!element || (element.type !== 'shape' && element.type !== 'image')) return;
+
+        const dx = point.x - resizeStartPoint.x;
+        const dy = point.y - resizeStartPoint.y;
+
+        let newX = resizeStartBounds.x;
+        let newY = resizeStartBounds.y;
+        let newWidth = resizeStartBounds.width;
+        let newHeight = resizeStartBounds.height;
+
+        // Handle different resize directions
+        switch (resizeHandle) {
+          case 'nw':
+            newX = resizeStartBounds.x + dx;
+            newY = resizeStartBounds.y + dy;
+            newWidth = resizeStartBounds.width - dx;
+            newHeight = resizeStartBounds.height - dy;
+            break;
+          case 'n':
+            newY = resizeStartBounds.y + dy;
+            newHeight = resizeStartBounds.height - dy;
+            break;
+          case 'ne':
+            newY = resizeStartBounds.y + dy;
+            newWidth = resizeStartBounds.width + dx;
+            newHeight = resizeStartBounds.height - dy;
+            break;
+          case 'e':
+            newWidth = resizeStartBounds.width + dx;
+            break;
+          case 'se':
+            newWidth = resizeStartBounds.width + dx;
+            newHeight = resizeStartBounds.height + dy;
+            break;
+          case 's':
+            newHeight = resizeStartBounds.height + dy;
+            break;
+          case 'sw':
+            newX = resizeStartBounds.x + dx;
+            newWidth = resizeStartBounds.width - dx;
+            newHeight = resizeStartBounds.height + dy;
+            break;
+          case 'w':
+            newX = resizeStartBounds.x + dx;
+            newWidth = resizeStartBounds.width - dx;
+            break;
+        }
+
+        // Ensure minimum size
+        const minSize = 10;
+        if (newWidth < minSize) {
+          if (resizeHandle.includes('w')) {
+            newX = resizeStartBounds.x + resizeStartBounds.width - minSize;
+          }
+          newWidth = minSize;
+        }
+        if (newHeight < minSize) {
+          if (resizeHandle.includes('n')) {
+            newY = resizeStartBounds.y + resizeStartBounds.height - minSize;
+          }
+          newHeight = minSize;
+        }
+
+        updateElement(element.id, {
+          x: newX,
+          y: newY,
+          width: newWidth,
+          height: newHeight,
+        });
         return;
       }
 
@@ -828,11 +1110,23 @@ export default function Canvas() {
           });
         }
       }
+
+      if (activeTool === 'connector' && currentElement?.type === 'connector') {
+        const connEl = currentElement as ConnectorElement;
+        setCurrentElement({
+          ...connEl,
+          endPoint: rawPoint,
+        });
+      }
     },
     [
       isPanning,
       isDrawing,
       isMarqueeSelecting,
+      isResizing,
+      resizeHandle,
+      resizeStartBounds,
+      resizeStartPoint,
       activeTool,
       panStart,
       currentElement,
@@ -866,6 +1160,15 @@ export default function Canvas() {
       return;
     }
 
+    // End resizing
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeHandle(null);
+      setResizeStartBounds(null);
+      setResizeStartPoint(null);
+      return;
+    }
+
     // Finalize marquee selection
     if (isMarqueeSelecting && marqueeStart && marqueeEnd) {
       const rect = {
@@ -890,11 +1193,25 @@ export default function Canvas() {
     }
 
     if (isDrawing && currentElement) {
-      addElement(currentElement);
+      // Special handling for connector - check if end point is on an element
+      if (currentElement.type === 'connector') {
+        const connEl = currentElement as ConnectorElement;
+        const endHit = hitTest(connEl.endPoint);
+        // Don't connect to the start element
+        const endElementId = endHit && endHit.id !== connEl.startElementId ? endHit.id : null;
+
+        addElement({
+          ...connEl,
+          endElementId,
+        });
+        setConnectorStart(null);
+      } else {
+        addElement(currentElement);
+      }
       setCurrentElement(null);
     }
     setIsDrawing(false);
-  }, [isPanning, isDrawing, isMarqueeSelecting, marqueeStart, marqueeEnd, currentElement, elements, addElement, setCurrentElement, setIsDrawing, selectElements, elementIntersectsRect]);
+  }, [isPanning, isDrawing, isResizing, isMarqueeSelecting, marqueeStart, marqueeEnd, currentElement, elements, addElement, setCurrentElement, setIsDrawing, selectElements, elementIntersectsRect, hitTest]);
 
   const handleWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {

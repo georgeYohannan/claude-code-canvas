@@ -9,6 +9,7 @@ const tools: { id: Tool; label: string; icon: string; shortcut: string }[] = [
   { id: 'draw', label: 'Draw', icon: '✏️', shortcut: 'B' },
   { id: 'eraser', label: 'Eraser', icon: '🧹', shortcut: 'E' },
   { id: 'shape', label: 'Shape', icon: '□', shortcut: 'S' },
+  { id: 'connector', label: 'Connector', icon: '⟶', shortcut: 'C' },
   { id: 'text', label: 'Text', icon: 'T', shortcut: 'T' },
   { id: 'image', label: 'Image', icon: '🖼', shortcut: 'I' },
   { id: 'pan', label: 'Pan', icon: '✋', shortcut: 'H' },
@@ -217,32 +218,35 @@ export default function Toolbar({ onSaveToCloud, onLoadFromCloud }: ToolbarProps
           />
         }
       >
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3 p-2">
           {hasSelection && (
-            <div className="text-xs text-gray-500 text-center pb-1 border-b border-gray-200">
+            <div className="text-sm text-gray-600 text-center pb-2 border-b border-gray-200 font-medium">
               Click to change selection color
             </div>
           )}
-          <div className="grid grid-cols-5 gap-1">
+          <div className="grid grid-cols-5 gap-2">
             {colors.map((color) => (
               <button
                 key={color}
                 onClick={() => handleColorClick(color)}
-                className={`w-6 h-6 rounded border-2 transition-transform hover:scale-110 ${
-                  activeColor === color ? 'border-blue-500 scale-110' : 'border-gray-300'
+                className={`w-10 h-10 rounded-lg border-3 transition-all hover:scale-110 shadow-sm ${
+                  activeColor === color ? 'border-blue-500 scale-110 ring-2 ring-blue-300' : 'border-gray-300 hover:border-gray-400'
                 }`}
                 style={{ backgroundColor: color }}
                 title={color}
               />
             ))}
           </div>
-          <input
-            type="color"
-            value={activeColor}
-            onChange={(e) => handleColorClick(e.target.value)}
-            className="w-full h-8 cursor-pointer rounded"
-            title="Custom color"
-          />
+          <div className="pt-2 border-t border-gray-200">
+            <label className="text-xs text-gray-500 block mb-1">Custom color</label>
+            <input
+              type="color"
+              value={activeColor}
+              onChange={(e) => handleColorClick(e.target.value)}
+              className="w-full h-10 cursor-pointer rounded-lg border border-gray-300"
+              title="Custom color"
+            />
+          </div>
         </div>
       </ToolbarDropdown>
 

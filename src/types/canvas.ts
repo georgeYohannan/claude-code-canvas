@@ -1,4 +1,4 @@
-export type Tool = 'select' | 'draw' | 'eraser' | 'shape' | 'text' | 'image' | 'pan';
+export type Tool = 'select' | 'draw' | 'eraser' | 'shape' | 'text' | 'image' | 'pan' | 'connector';
 
 export type ShapeType =
   | 'rect' | 'circle' | 'line' | 'triangle' | 'arrow' | 'star'
@@ -82,7 +82,20 @@ export interface ImageElement extends BaseElement {
   height: number;
 }
 
-export type CanvasElement = DrawingElement | ShapeElement | TextElement | ImageElement;
+export type ConnectorStyle = 'straight' | 'elbow' | 'curved';
+
+export interface ConnectorElement extends BaseElement {
+  type: 'connector';
+  startElementId: string | null;  // Connected shape ID or null for free endpoint
+  endElementId: string | null;    // Connected shape ID or null for free endpoint
+  startPoint: Point;              // Start position (used if not connected to element)
+  endPoint: Point;                // End position (used if not connected to element)
+  connectorStyle: ConnectorStyle;
+  hasStartArrow?: boolean;
+  hasEndArrow?: boolean;
+}
+
+export type CanvasElement = DrawingElement | ShapeElement | TextElement | ImageElement | ConnectorElement;
 
 export interface CanvasState {
   elements: CanvasElement[];
